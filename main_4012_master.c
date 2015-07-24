@@ -14,7 +14,7 @@
 #define SEND_DATA       (PIC_ID-1)
 #define UPDATE_POSITION (PIC_ID-3)
 #define PIC_HAPTIC      (PIC_ID+3)
-#define SLAVE_INDATA    (PIC_ID-4)
+#define SLAVE_INDATA    0//(PIC_ID-4)
 #define MASTER_INDATA   (PIC_ID-1)
 
 // IO definitions
@@ -51,11 +51,15 @@
 #define NORMAL          0
 
 // CAN bit timing
-#define FOSC        7370000 // 7.37MHz
+#define FOSC        20000000 // 7.37MHz
 #define FCY         FOSC/4
-#define BITRATE     100000  // 100kbps
+#define BITRATE     1000000  // 100kbps
 #define NTQ         16      // Amount of Tq per bit time
 #define BRP_VAL     (((4*FCY)/(2*NTQ*BITRATE))-1) // refer to pg. 693 of Family Reference
+
+// UART baud rate
+#define UART_BAUD   115000
+#define UART_BRG    (FCY/(16*UART_BAUD))-1 // refer to pg. 506 of family reference
 
 // Define motorState state values
 #define INITIALIZE          100
@@ -248,15 +252,17 @@ void InitUart(){
     U1MODEbits.ALTIO = 1;       // UART communicates using U1ATX and U1ARX (pins 11&12)
     U1MODEbits.WAKE = 1;        // Enable wake-up on Start bit detec durign sleep mode
     U1MODEbits.PDSEL = 0;       // 8-bit data, no parity
-    U1MODEbits.STSEL = 1;       // 2 stop bits
+    U1MODEbits.STSEL = 0;       // 2 stop bits
 
     U1STAbits.UTXISEL = 0;      // Interrupt when TX buffer has one character empty
     U1STAbits.UTXBRK = 0;       // U1TX pin operates normally
     U1STAbits.URXISEL = 0;      // Interrupt when word moves from REG to RX buffer
     U1STAbits.ADDEN = 0;        // Address detect mode disabled
 
-    U1BRG = 11;                 // p.507 of family reference
-                                // 9600 baud rate
+//    U1BRG = 11;                 // p.507 of family reference
+//                                // 9600 baud rate for FOSC = 7.37MHz
+    U1BRG = (unsigned int) UART_BRG;           // p.507 of family reference
+                                // 115000 baud rate for FOSC = 20MHz
 
     IFS0bits.U1TXIF = 0;        // Clear U1TX interrupt
     IFS0bits.U1RXIF = 0;        // Clear U1RX interrupt
@@ -292,7 +298,7 @@ void msDelay(unsigned int mseconds) //For counting time in ms
     int i;
     int j;
     for (i = mseconds; i; i--) {
-        for (j = 265; j; j--) {
+        for (j = 714; j; j--) {
             // 5667 for XT_PLL8 -> Fcy = 34MHz
             // 714 for 20MHz oscillator -> Fcy=4.3MHz
             // 265 for FRC
@@ -406,8 +412,8 @@ int main() {
                 LEDGRN = 0;
 
                 C1TX0B4 = PIC_ID;
-                C1TX0B1 = C1RX0B1;
-                C1TX0B2 = POSCNT;
+                C1TX0B1 = POSCNT;
+                C1TX0B2 = C1RX0B2;
                 C1TX0B3 = C1RX0B3;
                 C1TX0CONbits.TXREQ = 1;
                 while (C1TX0CONbits.TXREQ != 0);

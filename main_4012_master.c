@@ -10,8 +10,8 @@
 #include "config.h"
 #include "p30fXXXX.h"
 
-#define PIC_ID          2
-#define SEND_DATA       (PIC_ID-1)
+#define PIC_ID          1
+#define SEND_DATA       6//(PIC_ID-1)
 #define UPDATE_POSITION (PIC_ID-3)
 #define PIC_HAPTIC      (PIC_ID+3)
 #define SLAVE_INDATA    0//(PIC_ID-4)
@@ -87,6 +87,8 @@
 #define PID_TD  0
 #define PID_TS  10
 #define PID_N   10
+#define CW   0
+#define CCW  1
 
 // Define PWM constants
 #define PWM_FREQUENCY       16000
@@ -110,6 +112,8 @@ unsigned int InData1[4] = {0, 0, 0, 0};
 unsigned int C1INTFtest, RX0IFtest, whileLooptest = 0;
 unsigned int motorState = INITIALIZE;
 unsigned int ADCValue0, ADCValue1 = 0;
+unsigned int pwmOUT[2] = {0, 0};
+unsigned int targetPos = 12000;
 
 void InitCan(void) {
     // Initializing CAN Module Control Register
@@ -320,37 +324,39 @@ void InitPid(pid_t *p, float kp, float kd, float ki, float T, unsigned short N, 
     p->elast = el;
 }
 
-unsigned int * CalcPid(pid_t *mypid, float degPOT, float degMTR)
+void CalcPid(pid_t *mypid)
 {
-    float pidOutDutyCycle;
-    static unsigned int pwmOUT[2] = {0, 0};
+    volatile float pidOutDutyCycle;
+    volatile int target = (int)targetPos;
+    volatile int motorPos = (int)POSCNT;
+    volatile float error = 0.0;
 
-    mypid->y = degMTR;
-    mypid->e = degPOT-degMTR;
+//    mypid->y = degMTR;
+    error = (float) (target - motorPos);
 
-    mypid->d = (mypid->T*mypid->dlast)/mypid->N + (mypid->Kd*mypid->T)*(mypid->y-mypid->ylast)/(mypid->T+(mypid->T/mypid->N));
-    mypid->u = mypid->Kp*mypid->e;//+mypid->d;
+//    mypid->i = mypid->e+mypid->elast; // accumulated error
+//    mypid->d = mypid->e-mypid->elast; // difference in error
+    mypid->u = mypid->Kp*error;//+mypid->Kd*mypid->d+mypid->Ki*mypid->i;
 
-    pidOutDutyCycle = (float) ((mypid->u/degPOT)*2*PWM_COUNTS_PERIOD);
+    pidOutDutyCycle = (float) (mypid->u*0.1);
 
-
-    if (pidOutDutyCycle >= 2*PWM_COUNTS_PERIOD){
-        pwmOUT[0] = (unsigned int) (2*PWM_COUNTS_PERIOD);
-        pwmOUT[1] = 0;
+    if (pidOutDutyCycle >= 998.0){
+        pwmOUT[CW] = 997;
+        pwmOUT[CCW] = 0;
     }
-    else if (pidOutDutyCycle <= -(2*PWM_COUNTS_PERIOD)){
-        pwmOUT[0] = 0;
-        pwmOUT[1] = (unsigned int) (2*PWM_COUNTS_PERIOD);
+    else if (pidOutDutyCycle <= -998.0){
+        pwmOUT[CW] = 0;
+        pwmOUT[CCW] = 997;
     }
     else if (pidOutDutyCycle <0){
-        pwmOUT[0] = 0;
-        pwmOUT[1] = (unsigned int)((-1)*2*pidOutDutyCycle);
+        pwmOUT[CW] = 0;
+        pwmOUT[CCW] = (unsigned int)((-1.0)*pidOutDutyCycle);
     }
     else{
-        pwmOUT[0] = (unsigned int)(2*pidOutDutyCycle);
-        pwmOUT[1] = 0;
+        pwmOUT[CW] = (unsigned int)(pidOutDutyCycle);
+        pwmOUT[CCW] = 0;
     }
-    return pwmOUT;
+    return;
 }
 
 void UpdatePid(pid_t *mypid)
@@ -408,7 +414,7 @@ int main() {
                 // Send data packet
             case SEND_DATA:
                 LEDRED = 0;
-                LEDYLW ^= 1;
+                LEDYLW = 0;
                 LEDGRN = 0;
 
                 C1TX0B4 = PIC_ID;
@@ -432,7 +438,7 @@ int main() {
 
                 LEDRED = 0;
                 LEDYLW = 0;
-                LEDGRN = 0;
+                LEDGRN ^= 1;
                 break;
         } // motorState switch
 

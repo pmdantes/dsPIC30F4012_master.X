@@ -105,6 +105,7 @@ typedef struct {
     float u;                // u=uc-y
     float e, elast;            // error
 } pid_t;
+pid_t mypid;
 
 //// CAN1 MODULE
 unsigned int InData0[4] = {0, 0, 0, 6};
@@ -173,7 +174,7 @@ void InitCan(void) {
 
 void InitQEI(void)
 {
-    ADPCFG |= 0x003B;           // RB3, RB4, RB5 configured to digital pin
+    ADPCFG |= 0x0038;           // RB3, RB4, RB5 configured to digital pin
     TRISB |= 0x30;              // Set RB4 and RB5 to input
     QEICONbits.QEIM = 0;        // Disable QEI module
     QEICONbits.CNTERR = 0;      // Clear any count errors
@@ -367,11 +368,27 @@ void UpdatePid(pid_t *mypid)
     mypid->elast = mypid->e;
 }
 
+void InitTmr1(void)
+{
+   TMR1 = 0;                // Reset timer counter
+   T1CONbits.TON = 0;       // Turn off timer 1
+   T1CONbits.TSIDL = 0;     // Continue operation during sleep
+   T1CONbits.TGATE = 0;     // Gated timer accumulation disabled
+   T1CONbits.TCS = 0;       // Use Tcy as source clock
+   T1CONbits.TCKPS = 0;     // Tcy/1 as input clock
+   PR1 = 5000;              // Interrupt period = 10ms
+   IFS0bits.T1IF = 0;       // Clear timer 1 interrupt flag
+   IEC0bits.T1IE = 1;       // Enable timer 1 interrupts
+   IPC0bits.T1IP = 7;       // Enable timer 1 interrupts
+   return;
+}
+
 int main() {
     unsigned int i;
     InitCan();
     InitQEI();
     InitPwm();
+    InitTmr1();
 //    InitAdc();
     pid_t mypid;
 
@@ -392,8 +409,10 @@ int main() {
                 LEDRED = 1;
                 LEDYLW = 0;
                 LEDGRN = 0;
+
                 // Initialization to offset POSCNT to three turns (12000 counts)
                 POSCNT = 12000; // This prevents under and overflow of the POSCNT register
+                ADCValue0 = 0;
 
                 // Enable ADC Module
                 ADCON1bits.ADON = 1; // A/D converter module on
@@ -407,6 +426,7 @@ int main() {
                 // Enable CAN module
                 C1CTRLbits.REQOP = NORMAL;
                 while (C1CTRLbits.OPMODE != NORMAL);
+
 
 //                motorState = SEND_DATA;
                 break;
@@ -433,8 +453,18 @@ int main() {
                 motorState = SEND_HOME;
                 break;
 
+            case PIC_HAPTIC:
+                targetPos = InData0[SLAVE_INDATA];
+                break;
+
             default :
                 // haptic code
+                if(InData0[1] > 20 && InData0[1] < 120){
+                     T1CONbits.TON = 1;
+                }
+                else{
+                     T1CONbits.TON = 0;
+                }
 
                 LEDRED = 0;
                 LEDYLW = 0;
@@ -481,6 +511,14 @@ void __attribute__((interrupt, no_auto_psv)) _C1Interrupt(void) {
         InData1[3] = C1RX1B4;
         C1RX1CONbits.RXFUL = 0;
     }
+}
+
+void __attribute__((interrupt, no_auto_psv)) _T1Interrupt(void)
+{
+    IFS0bits.T1IF = 0;   // Clear timer 1 interrupt flag
+//    LEDRED = 1;
+    CalcPid(&mypid);
+//    LEDRED = 0;
 }
 
 //void __attribute__((interrupt, no_auto_psv)) _INT0Interrupt(void) {
